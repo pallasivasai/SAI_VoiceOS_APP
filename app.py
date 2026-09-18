@@ -2,6 +2,8 @@ import datetime
 import re
 import requests
 import streamlit as st
+from urllib.parse import quote_plus
+from html import unescape
 
 st.set_page_config(
     page_title="SAI Voice OS",
@@ -59,74 +61,45 @@ def safe_calc(question: str):
             return None
     return None
 
-def get_openai_key():
+def google_search_answer(question: str, language: str):
+    """Free web-backed answer path: Google search results, no API key or Supabase."""
     try:
-        key = st.secrets.get("OPENAI_API_KEY")
-        if key:
-            return str(key).strip()
-    except Exception:
-        pass
-    return str(__import__("os").environ.get("OPENAI_API_KEY", "")).strip()
-
-
-def internet_answer(question: str):
-    language = detect_language(question)
-    api_key = get_openai_key()
-    if not api_key:
-        return (
-            "OpenAI API key is not configured in this Streamlit app. "
-            "Add OPENAI_API_KEY to Streamlit Secrets so every answer can come directly from ChatGPT."
-            if language != "te-IN" else
-            "OpenAI API key ఈ Streamlit app లో configure కాలేదు. ప్రతి answer ChatGPT నుంచి రావాలంటే Streamlit Secrets లో OPENAI_API_KEY add చేయాలి."
-        )
-
-    instruction = (
-        "You are SAI Voice OS. Answer the user's question directly in natural Telugu. "
-        "Use simple Telugu suitable for speaking aloud. For current information such as weather, news, people, prices, or events, use web search. "
-        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
-        if language == "te-IN" else
-        "You are SAI Voice OS. Answer the user's question directly in clear natural English suitable for speaking aloud. "
-        "For current information such as weather, news, people, prices, or events, use web search. "
-        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
-    )
-
-    payload = {
-        "model": "gpt-5.6-luna",
-        "instructions": instruction,
-        "tools": [{"type": "web_search"}],
-        "input": question,
-        "max_output_tokens": 1200,
-    }
-
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/responses",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + api_key,
-            },
-            json=payload,
-            timeout=60,
-        )
-        data = response.json()
-        if not response.ok:
-            detail = data.get("error", {}).get("message", "OpenAI request failed.")
-            return ("OpenAI error: " + str(detail))
-        answer = str(data.get("output_text") or "").strip()
-        if answer:
-            return answer
-        # Fallback parser for Responses API output blocks.
-        parts = []
-        for item in data.get("output", []):
-            for block in item.get("content", []):
-                if block.get("type") == "output_text" and block.get("text"):
-                    parts.append(block["text"])
-        return "\n".join(parts).strip() or "I did not receive an answer from ChatGPT. Please ask again."
-    except requests.RequestException as exc:
-        return "I could not reach ChatGPT right now: " + str(exc)
+        # Ask Google directly. The search engine can use the browser/IP locale.
+        url = "https://www.google.com/search?q=" + quote_plus(question) + "&hl=" + ("te" if language == "te-IN" else "en") + "&num=8"
+        r = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+            "Accept-Language": "te-IN,te;q=0.9,en;q=0.8" if language == "te-IN" else "en-US,en;q=0.9",
+        }, timeout=20)
+        if not r.ok:
+            return "Google Search is temporarily unavailable. Please try again."
+        html = r.text
+        # Extract useful Google result text while removing scripts/styles/navigation.
+        html = re.sub(r"<script[\\s\\S]*?</script>|<style[\\s\\S]*?</style>", " ", html, flags=re.I)
+        blocks = re.findall(r'<(?:div|span)[^>]*>(.*?)</(?:div|span)>', html, flags=re.I|re.S)
+        snippets=[]
+        for block in blocks:
+            text = re.sub(r"<[^>]+>", " ", block)
+            text = unescape(re.sub(r"\\s+", " ", text)).strip()
+            if 45 <= len(text) <= 700 and text not in snippets:
+                low=text.lower()
+                if not any(x in low for x in ["sign in", "before you continue", "search settings", "privacy", "terms"]):
+                    snippets.append(text)
+            if len(snippets)>=8: break
+        if not snippets:
+            return "Google did not return readable search results. Please ask again."
+        prefix = "Google search results: " if language != "te-IN" else "Google శోధనలో లభించిన సమాచారం: "
+        return prefix + " ".join(snippets[:6])
+    except requests.RequestException:
+        return "I could not reach Google Search right now. Please try again."
     except Exception as exc:
-        return "The ChatGPT answer service returned an error: " + str(exc)
+        return "Google Search returned an unexpected result."
 
+
+def get_answer(question: str):
+    question = question.strip()
+    if not question:
+        return "I did not hear a question. Please speak again."
+    return google_search_answer(question, detect_language(question))
 def get_answer(question: str):
     question = question.strip()
     if not question:

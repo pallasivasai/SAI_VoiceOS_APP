@@ -10,8 +10,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-SAI_ENDPOINT = "https://jgubunffqfyapurxpoih.supabase.co/functions/v1/sai-claude"
-
 def contains_telugu(text: str) -> bool:
     return bool(re.search(r"[\u0C00-\u0C7F]", text or ""))
 
@@ -61,39 +59,73 @@ def safe_calc(question: str):
             return None
     return None
 
+def get_openai_key():
+    try:
+        key = st.secrets.get("OPENAI_API_KEY")
+        if key:
+            return str(key).strip()
+    except Exception:
+        pass
+    return str(__import__("os").environ.get("OPENAI_API_KEY", "")).strip()
+
+
 def internet_answer(question: str):
     language = detect_language(question)
-    instruction = (
-        "Answer ONLY in Telugu. Use natural, simple Telugu suitable for speaking aloud. "
-        "Do not translate Telugu into English. If the question asks for current or changing information, "
-        "use the available internet-backed information and give the current answer."
-        if language == "te-IN"
-        else
-        "Answer in clear, natural English suitable for speaking aloud. If the question asks for current or changing information, "
-        "use the available internet-backed information and give the current answer."
-    )
-    try:
-        tz = datetime.datetime.now().astimezone().tzinfo
-        timezone = tz.key if hasattr(tz, "key") else "Asia/Kolkata"
-        response = requests.post(
-            SAI_ENDPOINT,
-            headers={"Content-Type": "application/json", "apikey": "public-web-client"},
-            json={
-                "question": question,
-                "language": language,
-                "timezone": timezone,
-                "instruction": instruction,
-            },
-            timeout=45,
+    api_key = get_openai_key()
+    if not api_key:
+        return (
+            "OpenAI API key is not configured in this Streamlit app. "
+            "Add OPENAI_API_KEY to Streamlit Secrets so every answer can come directly from ChatGPT."
+            if language != "te-IN" else
+            "OpenAI API key ఈ Streamlit app లో configure కాలేదు. ప్రతి answer ChatGPT నుంచి రావాలంటే Streamlit Secrets లో OPENAI_API_KEY add చేయాలి."
         )
-        if not response.ok:
-            return "I could not get the internet answer right now."
+
+    instruction = (
+        "You are SAI Voice OS. Answer the user's question directly in natural Telugu. "
+        "Use simple Telugu suitable for speaking aloud. For current information such as weather, news, people, prices, or events, use web search. "
+        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
+        if language == "te-IN" else
+        "You are SAI Voice OS. Answer the user's question directly in clear natural English suitable for speaking aloud. "
+        "For current information such as weather, news, people, prices, or events, use web search. "
+        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
+    )
+
+    payload = {
+        "model": "gpt-5.6-luna",
+        "instructions": instruction,
+        "tools": [{"type": "web_search"}],
+        "input": question,
+        "max_output_tokens": 1200,
+    }
+
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + api_key,
+            },
+            json=payload,
+            timeout=60,
+        )
         data = response.json()
-        return data.get("answer") or "The internet answer service did not return an answer."
-    except requests.RequestException:
-        return "I could not reach the internet answer service right now. Please try again."
-    except Exception:
-        return "The SAI answer service returned an unexpected response."
+        if not response.ok:
+            detail = data.get("error", {}).get("message", "OpenAI request failed.")
+            return ("OpenAI error: " + str(detail))
+        answer = str(data.get("output_text") or "").strip()
+        if answer:
+            return answer
+        # Fallback parser for Responses API output blocks.
+        parts = []
+        for item in data.get("output", []):
+            for block in item.get("content", []):
+                if block.get("type") == "output_text" and block.get("text"):
+                    parts.append(block["text"])
+        return "\n".join(parts).strip() or "I did not receive an answer from ChatGPT. Please ask again."
+    except requests.RequestException as exc:
+        return "I could not reach ChatGPT right now: " + str(exc)
+    except Exception as exc:
+        return "The ChatGPT answer service returned an error: " + str(exc)
 
 def get_answer(question: str):
     question = question.strip()

@@ -61,54 +61,67 @@ def safe_calc(question: str):
             return None
     return None
 
-def google_search_answer(question: str, language: str):
-    """Free web-backed answer path: Google search results, no API key or Supabase."""
+def get_openai_key():
     try:
-        # Ask Google directly. The search engine can use the browser/IP locale.
-        url = "https://www.google.com/search?q=" + quote_plus(question) + "&hl=" + ("te" if language == "te-IN" else "en") + "&num=8"
-        r = requests.get(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-            "Accept-Language": "te-IN,te;q=0.9,en;q=0.8" if language == "te-IN" else "en-US,en;q=0.9",
-        }, timeout=20)
-        if not r.ok:
-            return "Google Search is temporarily unavailable. Please try again."
-        html = r.text
-        # Extract useful Google result text while removing scripts/styles/navigation.
-        html = re.sub(r"<script[\\s\\S]*?</script>|<style[\\s\\S]*?</style>", " ", html, flags=re.I)
-        blocks = re.findall(r'<(?:div|span)[^>]*>(.*?)</(?:div|span)>', html, flags=re.I|re.S)
-        snippets=[]
-        for block in blocks:
-            text = re.sub(r"<[^>]+>", " ", block)
-            text = unescape(re.sub(r"\\s+", " ", text)).strip()
-            if 45 <= len(text) <= 700 and text not in snippets:
-                low=text.lower()
-                if not any(x in low for x in ["sign in", "before you continue", "search settings", "privacy", "terms"]):
-                    snippets.append(text)
-            if len(snippets)>=8: break
-        if not snippets:
-            return "Google did not return readable search results. Please ask again."
-        prefix = "Google search results: " if language != "te-IN" else "Google శోధనలో లభించిన సమాచారం: "
-        return prefix + " ".join(snippets[:6])
+        key = st.secrets.get("OPENAI_API_KEY")
+        if key:
+            return str(key).strip()
+    except Exception:
+        pass
+    return str(__import__("os").environ.get("OPENAI_API_KEY", "")).strip()
+
+
+def get_answer(question: str, location=None):
+    question = question.strip()
+    if not question:
+        return "I did not hear a question. Please speak again."
+
+    api_key = get_openai_key()
+    if not api_key:
+        return "OpenAI API key is not configured."
+
+    language = detect_language(question)
+    instruction = (
+        "You are SAI Voice OS. Answer directly in natural Telugu. "
+        "For current information, use web search. Keep the answer concise and suitable for speech."
+        if language == "te-IN" else
+        "You are SAI Voice OS. Answer directly in clear natural English. "
+        "For current information, use web search. Keep the answer concise and suitable for speech."
+    )
+
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + api_key,
+            },
+            json={
+                "model": "gpt-5.6-luna",
+                "instructions": instruction,
+                "tools": [{"type": "web_search"}],
+                "input": question,
+                "max_output_tokens": 1200,
+            },
+            timeout=60,
+        )
+        data = response.json()
+        if not response.ok:
+            error = data.get("error", {})
+            return "ChatGPT API error: " + str(error.get("message", "Request failed."))
+        answer = str(data.get("output_text") or "").strip()
+        if answer:
+            return answer
+        parts = []
+        for item in data.get("output", []):
+            for block in item.get("content", []):
+                if block.get("type") == "output_text" and block.get("text"):
+                    parts.append(block["text"])
+        return "\n".join(parts).strip() or "ChatGPT did not return an answer."
     except requests.RequestException:
-        return "I could not reach Google Search right now. Please try again."
+        return "I could not reach ChatGPT right now. Please try again."
     except Exception as exc:
-        return "Google Search returned an unexpected result."
-
-
-def get_answer(question: str):
-    question = question.strip()
-    if not question:
-        return "I did not hear a question. Please speak again."
-    return google_search_answer(question, detect_language(question))
-def get_answer(question: str):
-    question = question.strip()
-    if not question:
-        return "I did not hear a question. Please speak again."
-
-    # Every actual question is answered directly by ChatGPT. No Supabase, Claude,
-    # Google scraping, Wikipedia, or local answer engine is used for user questions.
-    return internet_answer(question)
-
+        return "ChatGPT returned an unexpected error: " + str(exc)
 
 st.session_state.setdefault("last_transcript", "")
 st.session_state.setdefault("last_answer", "")

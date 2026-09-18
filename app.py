@@ -132,28 +132,10 @@ def get_answer(question: str):
     if not question:
         return "I did not hear a question. Please speak again."
 
-    language = detect_language(question)
-
-    if language == "te-IN":
-        # Keep common local answers in Telugu without losing the internet route for everything else.
-        now = datetime.datetime.now().astimezone()
-        lower = question.lower()
-        if contains_telugu(question) and ("సమయం" in question or "టైమ్" in question):
-            return f"ప్రస్తుతం సమయం {now.strftime('%I:%M:%S %p')}. ఈ రోజు {now.strftime('%d %B %Y')}."
-        if contains_telugu(question) and ("తేదీ" in question or "ఈ రోజు" in question):
-            return f"ఈ రోజు {now.strftime('%d %B %Y')}."
-        if re.search(r"\b(enti|emiti|ippudu.*samayam|time.*enti)\b", lower):
-            return f"ప్రస్తుతం సమయం {now.strftime('%I:%M:%S %p')}. ఈ రోజు {now.strftime('%d %B %Y')}."
-
-    local = local_answer(question)
-    if local:
-        return local
-
-    calc = safe_calc(question)
-    if calc:
-        return calc
-
+    # Every actual question is answered directly by ChatGPT. No Supabase, Claude,
+    # Google scraping, Wikipedia, or local answer engine is used for user questions.
     return internet_answer(question)
+
 
 st.session_state.setdefault("last_transcript", "")
 st.session_state.setdefault("last_answer", "")

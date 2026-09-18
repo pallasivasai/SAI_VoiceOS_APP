@@ -2,8 +2,6 @@ import datetime
 import re
 import requests
 import streamlit as st
-from urllib.parse import quote_plus
-from html import unescape
 
 st.set_page_config(
     page_title="SAI Voice OS",
@@ -71,23 +69,34 @@ def get_openai_key():
     return str(__import__("os").environ.get("OPENAI_API_KEY", "")).strip()
 
 
-def get_answer(question: str, location=None):
-    question = question.strip()
-    if not question:
-        return "I did not hear a question. Please speak again."
-
+def internet_answer(question: str):
+    language = detect_language(question)
     api_key = get_openai_key()
     if not api_key:
-        return "OpenAI API key is not configured."
+        return (
+            "OpenAI API key is not configured in this Streamlit app. "
+            "Add OPENAI_API_KEY to Streamlit Secrets so every answer can come directly from ChatGPT."
+            if language != "te-IN" else
+            "OpenAI API key ఈ Streamlit app లో configure కాలేదు. ప్రతి answer ChatGPT నుంచి రావాలంటే Streamlit Secrets లో OPENAI_API_KEY add చేయాలి."
+        )
 
-    language = detect_language(question)
     instruction = (
-        "You are SAI Voice OS. Answer directly in natural Telugu. "
-        "For current information, use web search. Keep the answer concise and suitable for speech."
+        "You are SAI Voice OS. Answer the user's question directly in natural Telugu. "
+        "Use simple Telugu suitable for speaking aloud. For current information such as weather, news, people, prices, or events, use web search. "
+        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
         if language == "te-IN" else
-        "You are SAI Voice OS. Answer directly in clear natural English. "
-        "For current information, use web search. Keep the answer concise and suitable for speech."
+        "You are SAI Voice OS. Answer the user's question directly in clear natural English suitable for speaking aloud. "
+        "For current information such as weather, news, people, prices, or events, use web search. "
+        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
     )
+
+    payload = {
+        "model": "gpt-5.6-luna",
+        "instructions": instruction,
+        "tools": [{"type": "web_search"}],
+        "input": question,
+        "max_output_tokens": 1200,
+    }
 
     try:
         response = requests.post(
@@ -96,32 +105,37 @@ def get_answer(question: str, location=None):
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + api_key,
             },
-            json={
-                "model": "gpt-5.6-luna",
-                "instructions": instruction,
-                "tools": [{"type": "web_search"}],
-                "input": question,
-                "max_output_tokens": 1200,
-            },
+            json=payload,
             timeout=60,
         )
         data = response.json()
         if not response.ok:
-            error = data.get("error", {})
-            return "ChatGPT API error: " + str(error.get("message", "Request failed."))
+            detail = data.get("error", {}).get("message", "OpenAI request failed.")
+            return ("OpenAI error: " + str(detail))
         answer = str(data.get("output_text") or "").strip()
         if answer:
             return answer
+        # Fallback parser for Responses API output blocks.
         parts = []
         for item in data.get("output", []):
             for block in item.get("content", []):
                 if block.get("type") == "output_text" and block.get("text"):
                     parts.append(block["text"])
-        return "\n".join(parts).strip() or "ChatGPT did not return an answer."
-    except requests.RequestException:
-        return "I could not reach ChatGPT right now. Please try again."
+        return "\n".join(parts).strip() or "I did not receive an answer from ChatGPT. Please ask again."
+    except requests.RequestException as exc:
+        return "I could not reach ChatGPT right now: " + str(exc)
     except Exception as exc:
-        return "ChatGPT returned an unexpected error: " + str(exc)
+        return "The ChatGPT answer service returned an error: " + str(exc)
+
+def get_answer(question: str):
+    question = question.strip()
+    if not question:
+        return "I did not hear a question. Please speak again."
+
+    # Every actual question is answered directly by ChatGPT. No Supabase, Claude,
+    # Google scraping, Wikipedia, or local answer engine is used for user questions.
+    return internet_answer(question)
+
 
 st.session_state.setdefault("last_transcript", "")
 st.session_state.setdefault("last_answer", "")

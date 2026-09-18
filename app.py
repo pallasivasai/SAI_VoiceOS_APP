@@ -56,7 +56,7 @@ def safe_calc(question: str):
     )
     if re.fullmatch(r"[0-9\s+\-*/().%]+", expr) and any(c.isdigit() for c in expr):
         try:
-            return f"The answer is {eval(expr, {"__builtins__": {}}, {})}."
+            return f"The answer is {eval(expr, {'__builtins__': {}}, {})}."
         except Exception:
             return None
     return None

@@ -209,8 +209,8 @@ export default function(component) {
   if (!component.__sai) {
     component.__sai = {
       recognition:null, listening:false, enabled:false, active:false,
-      speaking:false, lastAnswerId:null, retryTimer:null
-      ,activeInitialized:false
+      speaking:false, lastAnswerId:null, retryTimer:null,
+      activeInitialized:false, returnToWake:false
     };
   }
   const S = component.__sai;
@@ -256,8 +256,25 @@ export default function(component) {
     if (voice) u.voice = voice;
     u.rate = 0.94;
     u.pitch = 1;
-    u.onend = () => { S.speaking = false; if (S.enabled) startRecognition(); };
-    u.onerror = () => { S.speaking = false; if (S.enabled) startRecognition(); };
+    u.onend = () => {
+      S.speaking = false;
+      if (S.returnToWake) {
+        S.active = false;
+        S.returnToWake = false;
+        setUI();
+        state.textContent = "Ready. Say “Shiva” for your next question.";
+      }
+      if (S.enabled) startRecognition();
+    };
+    u.onerror = () => {
+      S.speaking = false;
+      if (S.returnToWake) {
+        S.active = false;
+        S.returnToWake = false;
+        setUI();
+      }
+      if (S.enabled) startRecognition();
+    };
     window.speechSynthesis.speak(u);
   }
 
@@ -363,7 +380,11 @@ export default function(component) {
   if (data && data.answerId && data.answerId !== S.lastAnswerId) {
     S.lastAnswerId = data.answerId;
     if (data.transcript) heard.textContent = data.transcript;
-    if (data.answer) { answer.textContent = data.answer; say(data.answer); }
+    if (data.answer) {
+      answer.textContent = data.answer;
+      S.returnToWake = true;
+      say(data.answer);
+    }
   }
 
   if (!S.enabled) {

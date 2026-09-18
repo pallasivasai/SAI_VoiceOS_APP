@@ -126,6 +126,7 @@ def get_answer(question: str):
 st.session_state.setdefault("last_transcript", "")
 st.session_state.setdefault("last_answer", "")
 st.session_state.setdefault("request_id", 0)
+st.session_state.setdefault("sai_active", True)
 
 HTML = """
 <div class="sai-root">
@@ -209,9 +210,14 @@ export default function(component) {
     component.__sai = {
       recognition:null, listening:false, enabled:false, active:false,
       speaking:false, lastAnswerId:null, retryTimer:null
+      ,activeInitialized:false
     };
   }
   const S = component.__sai;
+  if (!S.activeInitialized && data) {
+    S.active = data.active !== false;
+    S.activeInitialized = true;
+  }
 
   function setUI() {
     mic.classList.toggle("on", S.listening);
@@ -291,10 +297,9 @@ export default function(component) {
 
       if (isStop(lower)) {
         S.active = false;
-        S.enabled = false;
-        try { r.stop(); } catch (_) {}
+        S.enabled = true;
         setUI();
-        say("Okay. I am paused. Say Shiva and tap the microphone when you want to resume.");
+        say("Okay. I am paused. Say Shiva when you want me again.");
         return;
       }
 
@@ -385,6 +390,7 @@ data = {
     "transcript": st.session_state.last_transcript,
     "answer": st.session_state.last_answer,
     "answerId": st.session_state.request_id,
+    "active": st.session_state.sai_active,
 }
 
 result = voice_component(
@@ -399,6 +405,7 @@ transcript = getattr(result, "transcript", None)
 
 if transcript and transcript != st.session_state.last_transcript:
     st.session_state.last_transcript = transcript
+    st.session_state.sai_active = True
     st.session_state.last_answer = get_answer(transcript)
     st.session_state.request_id += 1
     st.rerun()

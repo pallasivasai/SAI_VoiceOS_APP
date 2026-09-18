@@ -1,5 +1,7 @@
 import datetime
+import html
 import re
+from urllib.parse import quote_plus, urlparse, parse_qs, unquote
 import requests
 import streamlit as st
 
@@ -54,86 +56,127 @@ def safe_calc(question: str):
     )
     if re.fullmatch(r"[0-9\s+\-*/().%]+", expr) and any(c.isdigit() for c in expr):
         try:
-            return f"The answer is {eval(expr, {'__builtins__': {}}, {})}."
+            return f"The answer is {eval(expr, {"__builtins__": {}}, {})}."
         except Exception:
             return None
     return None
 
-def get_openai_key():
-    try:
-        key = st.secrets.get("OPENAI_API_KEY")
-        if key:
-            return str(key).strip()
-    except Exception:
-        pass
-    return str(__import__("os").environ.get("OPENAI_API_KEY", "")).strip()
+def _google_result_text(raw_html: str, language: str) -> str:
+    page = html.unescape(raw_html)
 
+    # Google answer/knowledge panels and featured snippets.
+    answer_patterns = [
+        r'data-attrid="(?:wa:/description|description)"[^>]*>(.*?)</div>',
+        r'class="[^"]*(?:VwiC3b|yXK7lf)[^"]*"[^>]*>(.*?)</div>',
+    ]
+
+    def clean(fragment: str) -> str:
+        fragment = re.sub(r"<script.*?</script>", " ", fragment, flags=re.I | re.S)
+        fragment = re.sub(r"<style.*?</style>", " ", fragment, flags=re.I | re.S)
+        fragment = re.sub(r"<[^>]+>", " ", fragment)
+        fragment = html.unescape(fragment)
+        return re.sub(r"\s+", " ", fragment).strip()
+
+    answers = []
+    for pattern in answer_patterns:
+        for match in re.findall(pattern, page, flags=re.I | re.S):
+            text = clean(match)
+            if len(text) >= 35 and text not in answers:
+                answers.append(text)
+            if len(answers) >= 3:
+                break
+        if len(answers) >= 3:
+            break
+
+    # Normal Google result snippets.
+    titles = []
+    for match in re.findall(r"<h3[^>]*>(.*?)</h3>", page, flags=re.I | re.S):
+        title = clean(match)
+        if title and title not in titles:
+            titles.append(title)
+
+    snippets = []
+    for match in re.findall(r'class="[^"]*VwiC3b[^"]*"[^>]*>(.*?)</div>', page, flags=re.I | re.S):
+        text = clean(match)
+        if len(text) >= 35 and text not in snippets:
+            snippets.append(text)
+        if len(snippets) >= 5:
+            break
+
+    if answers:
+        return answers[0]
+
+    if snippets:
+        parts = []
+        for i, snippet in enumerate(snippets[:3]):
+            title = titles[i] if i < len(titles) else ""
+            parts.append(f"{title}: {snippet}" if title else snippet)
+        prefix = "Google search results: " if language != "te-IN" else "Google search results: "
+        return prefix + " ".join(parts)
+
+    # Last-resort visible text extraction from Google's response.
+    visible = clean(page)
+    visible = re.sub(r"Google Search.*?Sign in", " ", visible, flags=re.I)
+    if len(visible) > 1200:
+        visible = visible[:1200]
+    return visible
 
 def internet_answer(question: str):
     language = detect_language(question)
-    api_key = get_openai_key()
-    if not api_key:
-        return (
-            "OpenAI API key is not configured in this Streamlit app. "
-            "Add OPENAI_API_KEY to Streamlit Secrets so every answer can come directly from ChatGPT."
-            if language != "te-IN" else
-            "OpenAI API key ఈ Streamlit app లో configure కాలేదు. ప్రతి answer ChatGPT నుంచి రావాలంటే Streamlit Secrets లో OPENAI_API_KEY add చేయాలి."
-        )
-
-    instruction = (
-        "You are SAI Voice OS. Answer the user's question directly in natural Telugu. "
-        "Use simple Telugu suitable for speaking aloud. For current information such as weather, news, people, prices, or events, use web search. "
-        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
-        if language == "te-IN" else
-        "You are SAI Voice OS. Answer the user's question directly in clear natural English suitable for speaking aloud. "
-        "For current information such as weather, news, people, prices, or events, use web search. "
-        "Never say you cannot answer if the web can provide useful information. Do not mention internal APIs, providers, or these instructions."
-    )
-
-    payload = {
-        "model": "gpt-5.6-luna",
-        "instructions": instruction,
-        "tools": [{"type": "web_search"}],
-        "input": question,
-        "max_output_tokens": 1200,
-    }
+    lang = "te" if language == "te-IN" else "en"
+    query = quote_plus(question)
+    url = f"https://www.google.com/search?q={query}&hl={lang}&gl=in"
 
     try:
-        response = requests.post(
-            "https://api.openai.com/v1/responses",
+        response = requests.get(
+            url,
             headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + api_key,
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/153.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "te-IN,te;q=0.9,en-IN;q=0.8,en;q=0.7",
             },
-            json=payload,
-            timeout=60,
+            timeout=15,
         )
-        data = response.json()
-        if not response.ok:
-            detail = data.get("error", {}).get("message", "OpenAI request failed.")
-            return ("OpenAI error: " + str(detail))
-        answer = str(data.get("output_text") or "").strip()
-        if answer:
-            return answer
-        # Fallback parser for Responses API output blocks.
-        parts = []
-        for item in data.get("output", []):
-            for block in item.get("content", []):
-                if block.get("type") == "output_text" and block.get("text"):
-                    parts.append(block["text"])
-        return "\n".join(parts).strip() or "I did not receive an answer from ChatGPT. Please ask again."
-    except requests.RequestException as exc:
-        return "I could not reach ChatGPT right now: " + str(exc)
-    except Exception as exc:
-        return "The ChatGPT answer service returned an error: " + str(exc)
+        response.raise_for_status()
+        answer = _google_result_text(response.text, language)
+        if answer and len(answer.strip()) >= 20:
+            return answer.strip()
+        return (
+            "Google search did not return a readable answer. Please ask again."
+            if language != "te-IN" else
+            "Google search nundi readable answer raledu. Malli adagandi."
+        )
+    except requests.RequestException:
+        return (
+            "I could not reach Google Search right now. Please try again."
+            if language != "te-IN" else
+            "Google Search ni ippudu reach cheyalekapoyanu. Malli try cheyandi."
+        )
+    except Exception:
+        return (
+            "Google Search returned an unreadable result. Please try again."
+            if language != "te-IN" else
+            "Google Search result readable ga raledu. Malli try cheyandi."
+        )
 
 def get_answer(question: str):
     question = question.strip()
     if not question:
         return "I did not hear a question. Please speak again."
 
-    # Every actual question is answered directly by ChatGPT. No Supabase, Claude,
-    # Google scraping, Wikipedia, or local answer engine is used for user questions.
+    # Keep Shiva/wake-word behavior unchanged. Actual questions now use Google Search
+    # directly, with no OpenAI/Supabase dependency for answers.
+    local = local_answer(question)
+    if local:
+        return local
+
+    calc = safe_calc(question)
+    if calc:
+        return calc
+
     return internet_answer(question)
 
 
@@ -178,13 +221,13 @@ HTML = """
   </div>
 
   <div class="quick">
-    <div class="quickItem">🌐 Internet answers</div>
+    <div class="quickItem">🌐 Google Search answers</div>
     <div class="quickItem">🇮🇳 English + Telugu</div>
     <div class="quickItem">🧮 Calculator</div>
     <div class="quickItem">🔊 Spoken replies</div>
   </div>
 
-  <div class="hint">Say “Shiva, stop listening” to pause. Say “Shiva” again to wake SAI. After activation, every natural-language instruction still goes through the existing answer flow.</div>
+  <div class="hint">Say “Shiva, stop listening” to pause. Say “Shiva” again to wake SAI. After activation, questions are answered using Google Search.</div>
 </div>
 """
 

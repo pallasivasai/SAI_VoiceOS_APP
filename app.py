@@ -1,6 +1,5 @@
 import streamlit as st
 import datetime
-import os
 import re
 import requests
 import speech_recognition as sr
@@ -60,29 +59,39 @@ def answer(question: str):
     question = question.strip()
     if not question:
         return "I did not hear a question. Please tap the microphone and try again."
+
     local = local_answer(question)
     if local:
         return local
+
     calc = safe_calc(question)
     if calc:
         return calc
 
-    endpoint = st.secrets.get("SAI_CLAUDE_URL", os.getenv("SAI_CLAUDE_URL", ""))
-    if endpoint:
-        try:
-            r = requests.post(
-                endpoint,
-                json={"question": question, "language":"en-IN",
-                      "timezone":datetime.datetime.now().astimezone().tzinfo.key
-                      if hasattr(datetime.datetime.now().astimezone().tzinfo, "key") else "Asia/Kolkata"},
-                timeout=35
-            )
-            data = r.json()
-            if r.ok and data.get("answer"):
-                return data["answer"]
-        except Exception:
-            pass
-    return "The SAI answer service is not connected yet. Please configure SAI_CLAUDE_URL in Streamlit Secrets."
+    # Use the SAI backend directly. No Streamlit Secret is required.
+    endpoint = "https://jgubunffqfyapurxpoih.supabase.co/functions/v1/sai-claude"
+    try:
+        r = requests.post(
+            endpoint,
+            headers={"Content-Type": "application/json", "apikey": "public-web-client"},
+            json={
+                "question": question,
+                "language": "en-IN",
+                "timezone": datetime.datetime.now().astimezone().tzinfo.key
+                if hasattr(datetime.datetime.now().astimezone().tzinfo, "key") else "Asia/Kolkata"
+            },
+            timeout=35
+        )
+        if not r.ok:
+            return f"I could not get an internet answer right now. The answer service returned status {r.status_code}."
+        data = r.json()
+        if data.get("answer"):
+            return data["answer"]
+        return "I reached the SAI answer service, but it did not return an answer."
+    except requests.RequestException:
+        return "I could not reach the SAI internet answer service right now. Please try again."
+    except Exception:
+        return "The SAI answer service returned an unexpected response. Please try again."
 
 def transcribe(audio_value):
     recognizer = sr.Recognizer()
@@ -90,9 +99,7 @@ def transcribe(audio_value):
         with sr.AudioFile(audio_value) as source:
             audio = recognizer.record(source)
         return recognizer.recognize_google(audio, language="en-IN")
-    except sr.UnknownValueError:
-        return ""
-    except sr.RequestError:
+    except (sr.UnknownValueError, sr.RequestError):
         return ""
     except Exception:
         return ""

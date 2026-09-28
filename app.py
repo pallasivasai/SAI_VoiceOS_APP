@@ -416,10 +416,10 @@ export default function(component) {
     u.onerror = () => {
       S.speaking = false;
       S.returnToWake = false;
-      S.active = true;
+      S.active = !S.pausedByUser;
       setUI();
-      state.textContent = "Listening for your next instruction…";
-      if (S.enabled) startRecognition();
+      state.textContent = S.active ? "Listening for your next instruction…" : "Paused. Say “Shiva” when you want me again.";
+      if (S.enabled && S.active) startRecognition();
     };
     window.speechSynthesis.speak(u);
   }

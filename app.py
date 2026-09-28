@@ -365,8 +365,16 @@ export default function(component) {
   }
 
   function requestLocationIfNeeded() {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      state.textContent = "Location is not available in this browser. Please allow location access in Chrome.";
+      if (S.pendingQuestion) {
+        setTriggerValue("transcript", S.pendingQuestion);
+        S.pendingQuestion = "";
+      }
+      return;
+    }
     if (!isWeatherQuestion(S.pendingQuestion || "")) return;
+    state.textContent = "Please allow location access. I will search Google for weather at your location.";
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         S.location = {lat: pos.coords.latitude, lon: pos.coords.longitude};
@@ -375,10 +383,9 @@ export default function(component) {
         S.pendingQuestion = "";
       },
       () => {
-        if (S.pendingQuestion) {
-          setTriggerValue("transcript", S.pendingQuestion);
-          S.pendingQuestion = "";
-        }
+        state.textContent = "Location permission was not granted. Please allow location for this site, then ask the weather again.";
+        S.active = true;
+        setUI();
       },
       {enableHighAccuracy:true, timeout:10000, maximumAge:300000}
     );
@@ -409,11 +416,10 @@ export default function(component) {
     };
     u.onerror = () => {
       S.speaking = false;
-      if (S.returnToWake) {
-        S.active = false;
-        S.returnToWake = false;
-        setUI();
-      }
+      S.returnToWake = false;
+      S.active = true;
+      setUI();
+      state.textContent = "Listening for your next instruction…";
       if (S.enabled) startRecognition();
     };
     window.speechSynthesis.speak(u);
@@ -475,9 +481,10 @@ export default function(component) {
           return;
         }
         state.textContent = "Shiva activated. Getting your answer…";
-        if (isWeatherQuestion(command) && !S.location) {
+        if (isWeatherQuestion(command)) {
           S.pendingQuestion = command;
-          state.textContent = "Allow location access so I can find your local weather…";
+          S.location = null;
+          state.textContent = "Please allow location access. I will search Google for your current local weather.";
           requestLocationIfNeeded();
         } else {
           setTriggerValue("transcript", command);
@@ -498,9 +505,10 @@ export default function(component) {
       S.lastProcessedAt = Date.now();
       state.textContent = "I heard you. Getting your answer…";
 
-      if (isWeatherQuestion(cleaned) && !S.location) {
+      if (isWeatherQuestion(cleaned)) {
         S.pendingQuestion = cleaned;
-        state.textContent = "Getting your location for the weather…";
+        S.location = null;
+        state.textContent = "Getting your current location for the weather…";
         requestLocationIfNeeded();
       } else {
         setTriggerValue("transcript", cleaned);

@@ -596,6 +596,7 @@ result = voice_component(
     data=data,
     key="sai_voice_component",
     on_transcript_change=lambda: None,
+    on_voice_event_change=lambda: None,
     width="stretch",
     height="content",
 )

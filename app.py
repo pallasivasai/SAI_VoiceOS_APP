@@ -191,7 +191,27 @@ def internet_answer(question: str):
             "Google Search result readable ga raledu. Malli try cheyandi."
         )
 
-def get_answer(question: str):
+def reverse_geocode(lat, lon):
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 10},
+            headers={"User-Agent": "SAI-Voice-OS/1.0"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        address = response.json().get("address", {})
+        return (
+            address.get("city")
+            or address.get("town")
+            or address.get("municipality")
+            or address.get("village")
+            or address.get("county")
+        )
+    except Exception:
+        return None
+
+def get_answer(question: str, location=None):
     question = question.strip()
     if not question:
         return "I did not hear a question. Please speak again."
@@ -206,6 +226,16 @@ def get_answer(question: str):
     if calc:
         return calc
 
+    if location and re.search(r"\b(weather|temperature|rain|forecast|climate|humidity)\b", question, re.I):
+        try:
+            lat = float(location.get("lat"))
+            lon = float(location.get("lon"))
+            place = reverse_geocode(lat, lon)
+            if place:
+                question = f"{question} in {place}"
+        except Exception:
+            pass
+
     return internet_answer(question)
 
 
@@ -213,6 +243,7 @@ st.session_state.setdefault("last_transcript", "")
 st.session_state.setdefault("last_answer", "")
 st.session_state.setdefault("request_id", 0)
 st.session_state.setdefault("sai_active", True)
+st.session_state.setdefault("last_location", None)
 
 HTML = """
 <div class="sai-root">
@@ -229,7 +260,7 @@ HTML = """
 
   <div class="hero">
     <div class="heroTitle">Say “Shiva”.</div>
-    <div class="heroText">SAI waits quietly for the wake word. Say <b>Shiva</b> to activate, then ask anything. English and Telugu answers are supported.</div>
+    <div class="heroText">SAI waits quietly for <b>Shiva</b>. After activation, SAI stays ready for every next command. For weather, allow browser location so Google can search weather for your actual location.</div>
   </div>
 
   <button id="mic" class="mic" aria-label="Enable SAI microphone">
@@ -256,7 +287,7 @@ HTML = """
     <div class="quickItem">🔊 Spoken replies</div>
   </div>
 
-  <div class="hint">Say “Shiva” to activate SAI. After activation, ask as many questions as you want. Say “Shiva, stop listening” to pause and return to wake mode. Answers come from Google Search.</div>
+  <div class="hint">Say “Shiva” to activate SAI. After activation, ask as many questions as you want. Weather uses your browser location permission and Google Search. Say “Shiva, stop listening” to pause.</div>
 </div>
 """
 
@@ -296,12 +327,14 @@ export default function(component) {
     component.__sai = {
       recognition:null, listening:false, enabled:false, active:false,
       speaking:false, lastAnswerId:null, retryTimer:null,
-      activeInitialized:false, returnToWake:false
+      activeInitialized:false, returnToWake:false, location:null,
+      lastFinalText:"", lastProcessedAt:0, pendingQuestion:""
     };
   }
   const S = component.__sai;
   if (!S.activeInitialized && data) {
     S.active = data.active !== false;
+    S.location = data.location || null;
     S.activeInitialized = true;
   }
 
@@ -325,6 +358,30 @@ export default function(component) {
 
   function isStop(text) {
     return /(?:stop listening|pause listening|listening stop|వినడం ఆపు|ఆపు)/i.test(text);
+  }
+
+  function isWeatherQuestion(text) {
+    return /\b(weather|temperature|rain|forecast|climate|humidity)\b|\b(వాతావరణం|వర్షం|ఉష్ణోగ్రత)\b/i.test(text);
+  }
+
+  function requestLocationIfNeeded() {
+    if (!navigator.geolocation) return;
+    if (!isWeatherQuestion(S.pendingQuestion || "")) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        S.location = {lat: pos.coords.latitude, lon: pos.coords.longitude};
+        setTriggerValue("location", JSON.stringify(S.location));
+        if (S.pendingQuestion) setTriggerValue("transcript", S.pendingQuestion);
+        S.pendingQuestion = "";
+      },
+      () => {
+        if (S.pendingQuestion) {
+          setTriggerValue("transcript", S.pendingQuestion);
+          S.pendingQuestion = "";
+        }
+      },
+      {enableHighAccuracy:true, timeout:10000, maximumAge:300000}
+    );
   }
 
   function say(text) {
@@ -418,12 +475,36 @@ export default function(component) {
           return;
         }
         state.textContent = "Shiva activated. Getting your answer…";
-        setTriggerValue("transcript", command);
+        if (isWeatherQuestion(command) && !S.location) {
+          S.pendingQuestion = command;
+          state.textContent = "Allow location access so I can find your local weather…";
+          requestLocationIfNeeded();
+        } else {
+          setTriggerValue("transcript", command);
+        }
         return;
       }
 
+      const cleaned = stripWake(finalText);
+      if (!cleaned) {
+        S.active = true;
+        setUI();
+        state.textContent = "Ready. I’m listening for your next instruction…";
+        return;
+      }
+
+      if (cleaned === S.lastFinalText && (Date.now() - S.lastProcessedAt) < 1200) return;
+      S.lastFinalText = cleaned;
+      S.lastProcessedAt = Date.now();
       state.textContent = "I heard you. Getting your answer…";
-      setTriggerValue("transcript", finalText);
+
+      if (isWeatherQuestion(cleaned) && !S.location) {
+        S.pendingQuestion = cleaned;
+        state.textContent = "Getting your location for the weather…";
+        requestLocationIfNeeded();
+      } else {
+        setTriggerValue("transcript", cleaned);
+      }
     };
 
     r.onerror = (event) => {
@@ -461,6 +542,8 @@ export default function(component) {
     }
   };
 
+  if (data && data.location) S.location = data.location;
+
   if (data && data.answerId && data.answerId !== S.lastAnswerId) {
     S.lastAnswerId = data.answerId;
     if (data.transcript) heard.textContent = data.transcript;
@@ -496,6 +579,7 @@ data = {
     "answer": st.session_state.last_answer,
     "answerId": st.session_state.request_id,
     "active": st.session_state.sai_active,
+    "location": st.session_state.last_location,
 }
 
 result = voice_component(
@@ -507,10 +591,17 @@ result = voice_component(
 )
 
 transcript = getattr(result, "transcript", None)
+location_value = getattr(result, "location", None)
+if location_value:
+    try:
+        import json
+        st.session_state.last_location = json.loads(location_value) if isinstance(location_value, str) else location_value
+    except Exception:
+        pass
 
 if transcript and transcript != st.session_state.last_transcript:
     st.session_state.last_transcript = transcript
     st.session_state.sai_active = True
-    st.session_state.last_answer = get_answer(transcript)
+    st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)
     st.session_state.request_id += 1
     st.rerun()

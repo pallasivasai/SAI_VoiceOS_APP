@@ -610,12 +610,14 @@ if voice_event:
     except Exception:
         event = {}
 
+    event_id = int(event.get("id") or 0)
     transcript = (event.get("transcript") or "").strip()
     location = event.get("location")
     if location:
         st.session_state.last_location = location
 
-    if transcript and event_id != st.session_state.last_voice_event_id:\n        st.session_state.last_voice_event_id = event_id
+    if transcript and event_id != st.session_state.last_voice_event_id:
+        st.session_state.last_voice_event_id = event_id
         st.session_state.last_transcript = transcript
         st.session_state.sai_active = True
         st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)

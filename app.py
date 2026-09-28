@@ -369,7 +369,7 @@ export default function(component) {
     if (!navigator.geolocation) {
       state.textContent = "I could not get your current location. Please allow location access once, then ask again.";
       if (S.pendingQuestion) {
-        setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion, location: null}));
+        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion, location: null}));
         S.pendingQuestion = "";
       }
       return;
@@ -379,7 +379,7 @@ export default function(component) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         S.location = {lat: pos.coords.latitude, lon: pos.coords.longitude};
-        setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion || "", location: S.location}));
+        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion || "", location: S.location}));
         S.pendingQuestion = "";
       },
       () => {
@@ -489,7 +489,7 @@ export default function(component) {
           state.textContent = "Getting your current location and checking the weather…";
           requestLocationIfNeeded();
         } else {
-          setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: command, location: null}));
+          setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: command, location: null}));
         }
         return;
       }
@@ -514,7 +514,7 @@ export default function(component) {
         state.textContent = "Getting your current location for the weather…";
         requestLocationIfNeeded();
       } else {
-        setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));
+        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));
       }
     };
 

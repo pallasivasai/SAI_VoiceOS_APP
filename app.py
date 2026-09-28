@@ -4,6 +4,7 @@ import re
 from urllib.parse import quote_plus, urlparse, parse_qs, unquote
 import requests
 import streamlit as st
+from zoneinfo import ZoneInfo
 
 st.set_page_config(
     page_title="SAI Voice OS",
@@ -35,11 +36,11 @@ def detect_language(text: str) -> str:
 
 def local_answer(question: str):
     text = question.lower().strip()
-    if re.search(r"\b(what(?:'s| is)?\s+(?:the\s+)?time|time\s+now|current\s+time|what time is it|tell me the time)\b", text):
-        now = datetime.datetime.now().astimezone()
-        return f"The current time is {now.strftime('%I:%M:%S %p')}. Today is {now.strftime('%A, %d %B %Y')}."
-    if re.search(r"\b(what(?:'s| is)?\s+(?:the\s+)?date|today's date|current date)\b", text):
-        return datetime.datetime.now().astimezone().strftime("Today is %A, %d %B %Y.")
+    if re.search(r"\b(what(?:'s| is)?\s+(?:the\s+)?time|time\s+now|current\s+time|what time is it|tell me the time|what is time|samayam|time ippudu|ippudu time)\b", text):
+        now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+        return f"The current time in India is {now.strftime('%I:%M:%S %p')}. Today is {now.strftime('%A, %d %B %Y')}."
+    if re.search(r"\b(what(?:'s| is)?\s+(?:the\s+)?date|today's date|current date|today date|ee roju date)\b", text):
+        return datetime.datetime.now(ZoneInfo("Asia/Kolkata")).strftime("Today is %A, %d %B %Y.")
     return None
 
 def safe_calc(question: str):
@@ -63,6 +64,34 @@ def safe_calc(question: str):
 
 def _google_result_text(raw_html: str, language: str) -> str:
     page = html.unescape(raw_html)
+
+    def tag_text(tag_id: str):
+        patterns = [
+            rf'<(?:div|span)[^>]+id=[\"\']{re.escape(tag_id)}[\"\'][^>]*>(.*?)</(?:div|span)>',
+            rf'<(?:div|span)[^>]+class=[\"\'][^\"\']*{re.escape(tag_id)}[^\"\']*[\"\'][^>]*>(.*?)</(?:div|span)>',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, page, flags=re.I | re.S)
+            if match:
+                value = re.sub(r"<[^>]+>", " ", match.group(1))
+                return re.sub(r"\s+", " ", html.unescape(value)).strip()
+        return ""
+
+    weather_location = tag_text("wob_loc")
+    weather_time = tag_text("wob_dts")
+    weather_condition = tag_text("wob_dc")
+    weather_temp = tag_text("wob_tm")
+    weather_humidity = tag_text("wob_hm")
+    weather_wind = tag_text("wob_ws")
+    if weather_condition or weather_temp:
+        parts = [p for p in [weather_location, weather_time, weather_condition] if p]
+        if weather_temp:
+            parts.append(f"{weather_temp} degrees Celsius")
+        if weather_humidity:
+            parts.append(f"Humidity {weather_humidity}")
+        if weather_wind:
+            parts.append(f"Wind {weather_wind}")
+        return "Current weather: " + ". ".join(parts) + "."
 
     # Google answer/knowledge panels and featured snippets.
     answer_patterns = [
@@ -96,7 +125,7 @@ def _google_result_text(raw_html: str, language: str) -> str:
             titles.append(title)
 
     snippets = []
-    for match in re.findall(r'class="[^"]*VwiC3b[^"]*"[^>]*>(.*?)</div>', page, flags=re.I | re.S):
+    for match in re.findall(r'class="[^"]*(?:VwiC3b|yXK7lf)[^"]*"[^>]*>(.*?)</div>', page, flags=re.I | re.S):
         text = clean(match)
         if len(text) >= 35 and text not in snippets:
             snippets.append(text)
@@ -227,7 +256,7 @@ HTML = """
     <div class="quickItem">🔊 Spoken replies</div>
   </div>
 
-  <div class="hint">Say “Shiva, stop listening” to pause. Say “Shiva” again to wake SAI. After activation, questions are answered using Google Search.</div>
+  <div class="hint">Say “Shiva” to activate SAI. After activation, ask as many questions as you want. Say “Shiva, stop listening” to pause and return to wake mode. Answers come from Google Search.</div>
 </div>
 """
 
@@ -315,12 +344,10 @@ export default function(component) {
     u.pitch = 1;
     u.onend = () => {
       S.speaking = false;
-      if (S.returnToWake) {
-        S.active = false;
-        S.returnToWake = false;
-        setUI();
-        state.textContent = "Ready. Say “Shiva” for your next question.";
-      }
+      S.returnToWake = false;
+      S.active = true;
+      setUI();
+      state.textContent = "Listening for your next instruction…";
       if (S.enabled) startRecognition();
     };
     u.onerror = () => {

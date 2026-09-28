@@ -165,7 +165,11 @@ def internet_answer(question: str):
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/153.0.0.0 Safari/537.36"
                 ),
-                "Accept-Language": "te-IN,te;q=0.9,en-IN;q=0.8,en;q=0.7",
+                "Accept-Language": (
+                    "te-IN,te;q=0.9,en-IN;q=0.8,en;q=0.7"
+                    if language == "te-IN"
+                    else "en-IN,en;q=0.9"
+                ),
             },
             timeout=15,
         )
@@ -217,7 +221,7 @@ def extract_weather_place(question: str):
     patterns = [
         r"\b(?:weather|temperature|rain|forecast|climate|humidity)\s+(?:in|at|near|for)\s+([A-Za-z][A-Za-z .'-]{1,50}?)(?:\s+(?:now|today|right now|please))?$",
         r"^([A-Za-z][A-Za-z .'-]{1,50}?)\s+(?:weather|temperature|forecast|climate)$",
-        r"^what(?:'s| is)?\s+(?:the\s+)?(?:weather|temperature)\s+(?:in|at|near|for)\s+([A-Za-z][A-Za-z .'-]{1,50}?)(?:\s+(?:now|today|right now))?$",
+        r"^what(?:'s| is)?\s+(?:the\s+)?(?:weather|temperature)(?:\s+(?:now|today|right now))?\s+(?:in|at|near|for)\s+([A-Za-z][A-Za-z .'-]{1,50}?)(?:\s+(?:now|today|right now))?$",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.I)

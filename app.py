@@ -154,7 +154,7 @@ def internet_answer(question: str):
     language = detect_language(question)
     lang = "te" if language == "te-IN" else "en"
     query = quote_plus(question)
-    url = f"https://www.google.com/search?q={query}&hl={lang}&gl=in"
+    url = f"https://www.google.com/search?q={query}&hl={lang}&gl=in&gbv=1&nfpr=1"
 
     try:
         response = requests.get(
@@ -211,6 +211,22 @@ def reverse_geocode(lat, lon):
     except Exception:
         return None
 
+def extract_weather_place(question: str):
+    """Return an explicitly named weather location, if the user supplied one."""
+    text = re.sub(r"\s+", " ", question.strip())
+    patterns = [
+        r"\b(?:weather|temperature|rain|forecast|climate|humidity)\s+(?:in|at|near|for)\s+([A-Za-z][A-Za-z .'-]{1,50}?)(?:\s+(?:now|today|right now|please))?$",
+        r"^([A-Za-z][A-Za-z .'-]{1,50}?)\s+(?:weather|temperature|forecast|climate)$",
+        r"^what(?:'s| is)?\s+(?:the\s+)?(?:weather|temperature)\s+(?:in|at|near|for)\s+([A-Za-z][A-Za-z .'-]{1,50}?)(?:\s+(?:now|today|right now))?$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            place = match.group(1).strip(" ,.-")
+            if place and place.lower() not in {"now", "today", "right now"}:
+                return place
+    return None
+
 def get_answer(question: str, location=None):
     question = question.strip()
     if not question:
@@ -226,15 +242,21 @@ def get_answer(question: str, location=None):
     if calc:
         return calc
 
-    if location and re.search(r"\b(weather|temperature|rain|forecast|climate|humidity)\b", question, re.I):
-        try:
-            lat = float(location.get("lat"))
-            lon = float(location.get("lon"))
-            place = reverse_geocode(lat, lon)
-            if place:
-                question = f"{question} in {place}"
-        except Exception:
-            pass
+    weather_query = bool(re.search(r"\b(weather|temperature|rain|forecast|climate|humidity)\b", question, re.I))
+    if weather_query:
+        explicit_place = extract_weather_place(question)
+        if explicit_place:
+            # If the user names a place, do not use browser geolocation.
+            question = f"weather in {explicit_place}"
+        elif location:
+            try:
+                lat = float(location.get("lat"))
+                lon = float(location.get("lon"))
+                place = reverse_geocode(lat, lon)
+                if place:
+                    question = f"weather in {place}"
+            except Exception:
+                pass
 
     return internet_answer(question)
 
@@ -365,6 +387,20 @@ export default function(component) {
     return /\b(weather|temperature|rain|forecast|climate|humidity)\b|\b(వాతావరణం|వర్షం|ఉష్ణోగ్రత)\b/i.test(text);
   }
 
+  function hasExplicitWeatherLocation(text) {
+    if (!isWeatherQuestion(text)) return false;
+    return /\b(?:weather|temperature|rain|forecast|climate|humidity)\s+(?:in|at|near|for)\s+[A-Za-z][A-Za-z .'-]{1,50}/i.test(text)
+      || /^[A-Za-z][A-Za-z .'-]{1,50}\s+(?:weather|temperature|forecast|climate)$/i.test(text);
+  }
+
+  function sendVoiceEvent(question, location) {
+    setTriggerValue("voice_event", JSON.stringify({
+      id: Date.now(),
+      transcript: question || "",
+      location: location || null
+    }));
+  }
+
   function requestLocationIfNeeded() {
     if (!navigator.geolocation) {
       state.textContent = "I could not get your current location. Please allow location access once, then ask again.";
@@ -375,6 +411,12 @@ export default function(component) {
       return;
     }
     if (!isWeatherQuestion(S.pendingQuestion || "")) return;
+    if (hasExplicitWeatherLocation(S.pendingQuestion || "")) {
+      state.textContent = "Searching Google for that location's weather…";
+      sendVoiceEvent(S.pendingQuestion, null);
+      S.pendingQuestion = "";
+      return;
+    }
     state.textContent = "Getting your current location and checking the weather…";
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -383,9 +425,11 @@ export default function(component) {
         S.pendingQuestion = "";
       },
       () => {
-        state.textContent = "I need your location once to give the correct local weather. Please allow it, then ask again.";
+        const message = "I need your location permission to answer local weather. Please allow location access and ask again.";
+        state.textContent = message;
         S.active = true;
         setUI();
+        say(message);
       },
       {enableHighAccuracy:true, timeout:10000, maximumAge:0}
     );
@@ -486,7 +530,9 @@ export default function(component) {
         if (isWeatherQuestion(command)) {
           S.pendingQuestion = command;
           S.location = null;
-          state.textContent = "Getting your current location and checking the weather…";
+          state.textContent = hasExplicitWeatherLocation(command)
+            ? "Searching Google for that location's weather…"
+            : "Getting your current location and checking the weather…";
           requestLocationIfNeeded();
         } else {
           setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: command, location: null}));
@@ -511,7 +557,9 @@ export default function(component) {
       if (isWeatherQuestion(cleaned)) {
         S.pendingQuestion = cleaned;
         S.location = null;
-        state.textContent = "Getting your current location for the weather…";
+        state.textContent = hasExplicitWeatherLocation(cleaned)
+          ? "Searching Google for that location's weather…"
+          : "Getting your current location for the weather…";
         requestLocationIfNeeded();
       } else {
         setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));

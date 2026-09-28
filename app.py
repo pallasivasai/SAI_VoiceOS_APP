@@ -314,7 +314,7 @@ border:1px solid rgba(255,255,255,.09); color:#F8FAFC; font-family:Inter,system-
 
 JS = """
 export default function(component) {
-  const { parentElement, data, setTriggerValue } = component;
+  const { parentElement, data, setStateValue, setTriggerValue } = component;
   const mic = parentElement.querySelector("#mic");
   const micLabel = parentElement.querySelector("#micLabel");
   const state = parentElement.querySelector("#state");

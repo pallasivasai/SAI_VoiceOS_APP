@@ -244,6 +244,7 @@ st.session_state.setdefault("last_answer", "")
 st.session_state.setdefault("request_id", 0)
 st.session_state.setdefault("sai_active", True)
 st.session_state.setdefault("last_location", None)
+st.session_state.setdefault("last_voice_event_id", 0)
 
 HTML = """
 <div class="sai-root">
@@ -368,7 +369,7 @@ export default function(component) {
     if (!navigator.geolocation) {
       state.textContent = "I could not get your current location. Please allow location access once, then ask again.";
       if (S.pendingQuestion) {
-        setTriggerValue("transcript", S.pendingQuestion);
+        setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion, location: null}));
         S.pendingQuestion = "";
       }
       return;
@@ -378,7 +379,7 @@ export default function(component) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         S.location = {lat: pos.coords.latitude, lon: pos.coords.longitude};
-        setTriggerValue("voice_event", JSON.stringify({transcript: S.pendingQuestion || "", location: S.location}));
+        setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion || "", location: S.location}));
         S.pendingQuestion = "";
       },
       () => {
@@ -488,7 +489,7 @@ export default function(component) {
           state.textContent = "Getting your current location and checking the weather…";
           requestLocationIfNeeded();
         } else {
-          setTriggerValue("transcript", command);
+          setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: command, location: null}));
         }
         return;
       }
@@ -513,7 +514,7 @@ export default function(component) {
         state.textContent = "Getting your current location for the weather…";
         requestLocationIfNeeded();
       } else {
-        setTriggerValue("transcript", cleaned);
+        setStateValue("voice_event", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));
       }
     };
 
@@ -614,7 +615,7 @@ if voice_event:
     if location:
         st.session_state.last_location = location
 
-    if transcript and transcript != st.session_state.last_transcript:
+    if transcript and event_id != st.session_state.last_voice_event_id:\n        st.session_state.last_voice_event_id = event_id
         st.session_state.last_transcript = transcript
         st.session_state.sai_active = True
         st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)

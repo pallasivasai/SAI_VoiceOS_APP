@@ -260,7 +260,7 @@ HTML = """
 
   <div class="hero">
     <div class="heroTitle">Say “Shiva”.</div>
-    <div class="heroText">SAI waits quietly for <b>Shiva</b>. After activation, SAI stays ready for every next command. For weather, allow browser location so Google can search weather for your actual location.</div>
+    <div class="heroText">SAI waits quietly for <b>Shiva</b>. After activation, SAI stays ready for every next command. Weather is handled automatically and spoken back to you.</div>
   </div>
 
   <button id="mic" class="mic" aria-label="Enable SAI microphone">
@@ -287,7 +287,7 @@ HTML = """
     <div class="quickItem">🔊 Spoken replies</div>
   </div>
 
-  <div class="hint">Say “Shiva” to activate SAI. After activation, ask as many questions as you want. Weather uses your browser location permission and Google Search. Say “Shiva, stop listening” to pause.</div>
+  <div class="hint">Say “Shiva” to activate SAI. After activation, ask as many questions as you want. Say “Shiva, stop listening” to pause.</div>
 </div>
 """
 
@@ -328,7 +328,7 @@ export default function(component) {
       recognition:null, listening:false, enabled:false, active:false,
       speaking:false, lastAnswerId:null, retryTimer:null,
       activeInitialized:false, returnToWake:false, location:null,
-      lastFinalText:"", lastProcessedAt:0, pendingQuestion:""
+      lastFinalText:"", lastProcessedAt:0, pendingQuestion:"", pausedByUser:false
     };
   }
   const S = component.__sai;
@@ -366,7 +366,7 @@ export default function(component) {
 
   function requestLocationIfNeeded() {
     if (!navigator.geolocation) {
-      state.textContent = "Location is not available in this browser. Please allow location access in Chrome.";
+      state.textContent = "I could not get your current location. Please allow location access once, then ask again.";
       if (S.pendingQuestion) {
         setTriggerValue("transcript", S.pendingQuestion);
         S.pendingQuestion = "";
@@ -374,20 +374,19 @@ export default function(component) {
       return;
     }
     if (!isWeatherQuestion(S.pendingQuestion || "")) return;
-    state.textContent = "Please allow location access. I will search Google for weather at your location.";
+    state.textContent = "Getting your current location and checking the weather…";
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         S.location = {lat: pos.coords.latitude, lon: pos.coords.longitude};
-        setTriggerValue("location", JSON.stringify(S.location));
-        if (S.pendingQuestion) setTriggerValue("transcript", S.pendingQuestion);
+        setTriggerValue("voice_event", JSON.stringify({transcript: S.pendingQuestion || "", location: S.location}));
         S.pendingQuestion = "";
       },
       () => {
-        state.textContent = "Location permission was not granted. Please allow location for this site, then ask the weather again.";
+        state.textContent = "I need your location once to give the correct local weather. Please allow it, then ask again.";
         S.active = true;
         setUI();
       },
-      {enableHighAccuracy:true, timeout:10000, maximumAge:300000}
+      {enableHighAccuracy:true, timeout:10000, maximumAge:0}
     );
   }
 
@@ -409,10 +408,10 @@ export default function(component) {
     u.onend = () => {
       S.speaking = false;
       S.returnToWake = false;
-      S.active = true;
+      S.active = !S.pausedByUser;
       setUI();
-      state.textContent = "Listening for your next instruction…";
-      if (S.enabled) startRecognition();
+      state.textContent = S.active ? "Listening for your next instruction…" : "Paused. Say “Shiva” when you want me again.";
+      if (S.enabled && S.active) startRecognition();
     };
     u.onerror = () => {
       S.speaking = false;
@@ -461,6 +460,7 @@ export default function(component) {
 
       if (isStop(lower)) {
         S.active = false;
+        S.pausedByUser = true;
         S.enabled = true;
         setUI();
         say("Okay. I am paused. Say Shiva when you want me again.");
@@ -474,6 +474,7 @@ export default function(component) {
         }
 
         S.active = true;
+        S.pausedByUser = false;
         const command = stripWake(finalText);
         if (!command) {
           state.textContent = "Yes. I’m ready. Tell me what you need.";
@@ -484,7 +485,7 @@ export default function(component) {
         if (isWeatherQuestion(command)) {
           S.pendingQuestion = command;
           S.location = null;
-          state.textContent = "Please allow location access. I will search Google for your current local weather.";
+          state.textContent = "Getting your current location and checking the weather…";
           requestLocationIfNeeded();
         } else {
           setTriggerValue("transcript", command);
@@ -493,6 +494,7 @@ export default function(component) {
       }
 
       const cleaned = stripWake(finalText);
+      S.pausedByUser = false;
       if (!cleaned) {
         S.active = true;
         setUI();
@@ -598,18 +600,22 @@ result = voice_component(
     height="content",
 )
 
-transcript = getattr(result, "transcript", None)
-location_value = getattr(result, "location", None)
-if location_value:
+voice_event = getattr(result, "voice_event", None)
+if voice_event:
     try:
         import json
-        st.session_state.last_location = json.loads(location_value) if isinstance(location_value, str) else location_value
+        event = json.loads(voice_event) if isinstance(voice_event, str) else voice_event
     except Exception:
-        pass
+        event = {}
 
-if transcript and transcript != st.session_state.last_transcript:
-    st.session_state.last_transcript = transcript
-    st.session_state.sai_active = True
-    st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)
-    st.session_state.request_id += 1
-    st.rerun()
+    transcript = (event.get("transcript") or "").strip()
+    location = event.get("location")
+    if location:
+        st.session_state.last_location = location
+
+    if transcript and transcript != st.session_state.last_transcript:
+        st.session_state.last_transcript = transcript
+        st.session_state.sai_active = True
+        st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)
+        st.session_state.request_id += 1
+        st.rerun()

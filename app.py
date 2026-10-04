@@ -374,7 +374,7 @@ export default function(component) {
       recognition:null, listening:false, enabled:false, active:false,
       speaking:false, lastAnswerId:null, retryTimer:null,
       activeInitialized:false, returnToWake:false, location:null,
-      lastFinalText:"", lastProcessedAt:0, pendingQuestion:"", pausedByUser:false
+      lastFinalText:"", lastProcessedAt:0, pendingQuestion:"", awaitingWeatherLocation:false, pausedByUser:false
     };
   }
   const S = component.__sai;
@@ -424,13 +424,16 @@ export default function(component) {
     }));
   }
 
+  // Weather location handling is permission-aware:
+  // explicit locations never request browser geolocation; otherwise ask for
+  // permission first, and if denied, ask the user for a city/location.
   function requestLocationIfNeeded() {
     if (!navigator.geolocation) {
-      state.textContent = "I could not get your current location. Please allow location access once, then ask again.";
-      if (S.pendingQuestion) {
-        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion, location: null}));
-        S.pendingQuestion = "";
-      }
+      const message = "I cannot access your location. Which location's weather would you like?";
+      S.awaitingWeatherLocation = true;
+      S.pendingQuestion = "";
+      state.textContent = message;
+      say(message);
       return;
     }
     if (!isWeatherQuestion(S.pendingQuestion || "")) return;
@@ -448,9 +451,12 @@ export default function(component) {
         S.pendingQuestion = "";
       },
       () => {
-        const message = "I need your location permission to answer local weather. Please allow location access and ask again.";
+        const message = "I do not have location permission. Which location's weather would you like?";
+        S.awaitingWeatherLocation = true;
+        S.pendingQuestion = "";
         state.textContent = message;
         S.active = true;
+        S.pausedByUser = false;
         setUI();
         say(message);
       },
@@ -543,6 +549,7 @@ export default function(component) {
 
         S.active = true;
         S.pausedByUser = false;
+        S.awaitingWeatherLocation = false;
         const command = stripWake(finalText);
         if (!command) {
           state.textContent = "Yes. I’m ready. Tell me what you need.";
@@ -553,6 +560,7 @@ export default function(component) {
         if (isWeatherQuestion(command)) {
           S.pendingQuestion = command;
           S.location = null;
+          S.awaitingWeatherLocation = false;
           state.textContent = hasExplicitWeatherLocation(command)
             ? "Searching Google for that location's weather…"
             : "Getting your current location and checking the weather…";
@@ -572,6 +580,26 @@ export default function(component) {
         return;
       }
 
+      // If location permission was unavailable, the next spoken phrase is treated
+      // as the requested weather location, then the complete weather question is
+      // sent to Gemini. The user does not need to say Shiva again.
+      if (S.awaitingWeatherLocation) {
+        S.awaitingWeatherLocation = false;
+        S.pendingQuestion = "";
+        const weatherLocation = stripWake(cleaned).replace(/^(?:in|at|near|for)\s+/i, "").trim();
+        if (!weatherLocation) {
+          state.textContent = "Please tell me the city or location.";
+          say("Please tell me the city or location.");
+          S.awaitingWeatherLocation = true;
+          return;
+        }
+        const weatherQuestion = "What is the weather today in " + weatherLocation + "?";
+        heard.textContent = weatherQuestion;
+        state.textContent = "Checking the weather with Gemini…";
+        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: weatherQuestion, location: null}));
+        return;
+      }
+
       if (cleaned === S.lastFinalText && (Date.now() - S.lastProcessedAt) < 1200) return;
       S.lastFinalText = cleaned;
       S.lastProcessedAt = Date.now();
@@ -580,6 +608,7 @@ export default function(component) {
       if (isWeatherQuestion(cleaned)) {
         S.pendingQuestion = cleaned;
         S.location = null;
+        S.awaitingWeatherLocation = false;
         state.textContent = hasExplicitWeatherLocation(cleaned)
           ? "Searching Google for that location's weather…"
           : "Getting your current location for the weather…";

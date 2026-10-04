@@ -4,6 +4,11 @@ import re
 from urllib.parse import quote_plus, urlparse, parse_qs, unquote
 import requests
 import streamlit as st
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 from zoneinfo import ZoneInfo
 
 st.set_page_config(
@@ -150,51 +155,65 @@ def _google_result_text(raw_html: str, language: str) -> str:
         visible = visible[:1200]
     return visible
 
-def internet_answer(question: str):
+def _secret(name: str, default: str = "") -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    try:
+        return str(st.secrets.get(name, default)).strip()
+    except Exception:
+        return default
+
+
+GEMINI_API_KEY = _secret("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+
+
+def gemini_answer(question: str) -> str:
+    """Generate the voice answer with the same free Gemini Flash-Lite setup as SAI-RAG."""
     language = detect_language(question)
-    lang = "te" if language == "te-IN" else "en"
-    query = quote_plus(question)
-    url = f"https://www.google.com/search?q={query}&hl={lang}&gl=in&gbv=1&nfpr=1"
+    if not GEMINI_API_KEY:
+        return (
+            "Gemini API key is missing. Please add GEMINI_API_KEY under Streamlit Secrets."
+            if language != "te-IN"
+            else
+            "Gemini API key set cheyyaledu. Streamlit Secrets lo GEMINI_API_KEY add cheyyandi."
+        )
+    if genai is None:
+        return "Gemini library is not installed. Please restart the Streamlit app."
 
     try:
-        response = requests.get(
-            url,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/153.0.0.0 Safari/537.36"
-                ),
-                "Accept-Language": (
-                    "te-IN,te;q=0.9,en-IN;q=0.8,en;q=0.7"
-                    if language == "te-IN"
-                    else "en-IN,en;q=0.9"
-                ),
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        system = (
+            "You are SAI, a voice-first accessibility assistant for blind users. "
+            "Answer naturally, clearly and concisely because your answer will be spoken aloud. "
+            "Do not mention Google Search, Streamlit, APIs, or internal implementation unless the user asks. "
+            "If the user speaks Telugu or Telugu transliteration, answer in Telugu. "
+            "If the user speaks English, answer in English."
+        )
+        response = model.generate_content(
+            [system, question],
+            generation_config={
+                "temperature": 0.4,
+                "max_output_tokens": 512,
             },
-            timeout=15,
         )
-        response.raise_for_status()
-        answer = _google_result_text(response.text, language)
-        if answer and len(answer.strip()) >= 20:
-            return answer.strip()
+        answer = (getattr(response, "text", "") or "").strip()
+        return answer or "Gemini did not return a readable answer."
+    except Exception as exc:
+        print(f"[SAI] Gemini error: {exc}")
         return (
-            "Google search did not return a readable answer. Please ask again."
-            if language != "te-IN" else
-            "Google search nundi readable answer raledu. Malli adagandi."
-        )
-    except requests.RequestException:
-        return (
-            "I could not reach Google Search right now. Please try again."
-            if language != "te-IN" else
-            "Google Search ni ippudu reach cheyalekapoyanu. Malli try cheyandi."
-        )
-    except Exception:
-        return (
-            "Google Search returned an unreadable result. Please try again."
-            if language != "te-IN" else
-            "Google Search result readable ga raledu. Malli try cheyandi."
+            "I could not get an answer from Gemini right now. Please try again."
+            if language != "te-IN"
+            else
+            "Gemini nundi answer ippudu raledu. Malli try cheyyandi."
         )
 
+
+def internet_answer(question: str):
+    # Kept as a compatibility wrapper. All normal knowledge answers now come from Gemini.
+    return gemini_answer(question)
 def reverse_geocode(lat, lon):
     try:
         response = requests.get(
@@ -236,8 +255,7 @@ def get_answer(question: str, location=None):
     if not question:
         return "I did not hear a question. Please speak again."
 
-    # Keep Shiva/wake-word behavior unchanged. Actual questions now use Google Search
-    # directly, with no OpenAI/Supabase dependency for answers.
+    # Shiva/wake-word behavior stays unchanged. Normal knowledge answers use Gemini Flash-Lite.
     local = local_answer(question)
     if local:
         return local
@@ -262,7 +280,7 @@ def get_answer(question: str, location=None):
             except Exception:
                 pass
 
-    return internet_answer(question)
+    return gemini_answer(question)
 
 
 st.session_state.setdefault("last_transcript", "")
@@ -287,7 +305,7 @@ HTML = """
 
   <div class="hero">
     <div class="heroTitle">Say “Shiva”.</div>
-    <div class="heroText">SAI waits quietly for <b>Shiva</b>. After activation, SAI stays ready for every next command. Weather is handled automatically and spoken back to you.</div>
+    <div class="heroText">SAI waits quietly for <b>Shiva</b>. After activation, SAI stays ready for every next command. Gemini answers naturally and speaks the response back to you.</div>
   </div>
 
   <button id="mic" class="mic" aria-label="Enable SAI microphone">
@@ -308,7 +326,7 @@ HTML = """
   </div>
 
   <div class="quick">
-    <div class="quickItem">🌐 Google Search answers</div>
+    <div class="quickItem">✨ Gemini Flash-Lite answers</div>
     <div class="quickItem">🇮🇳 English + Telugu</div>
     <div class="quickItem">🧮 Calculator</div>
     <div class="quickItem">🔊 Spoken replies</div>

@@ -17,3 +17,4 @@ WHISPER_COMPUTE = os.getenv("SAI_WHISPER_COMPUTE", "int8")
 WAKE_THRESHOLD = float(os.getenv("SAI_WAKE_THRESHOLD", "0.55"))
 TTS_RATE = int(os.getenv("SAI_TTS_RATE", "175"))
 GOOGLE_TIMEOUT = int(os.getenv("SAI_GOOGLE_TIMEOUT", "15"))
+GEMINI_MODEL = "gemini-3.5-flash-lite"

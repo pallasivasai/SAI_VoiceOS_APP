@@ -269,7 +269,6 @@ def get_answer(question: str, location=None):
     if weather_query:
         explicit_place = extract_weather_place(question)
         if explicit_place:
-            # If the user names a place, do not use browser geolocation.
             question = f"weather in {explicit_place}"
         elif location:
             try:
@@ -280,6 +279,14 @@ def get_answer(question: str, location=None):
                     question = f"weather in {place}"
             except Exception:
                 pass
+        else:
+            language = detect_language(question)
+            return (
+                "మీరు ఏ location లో weather కావాలనుకుంటున్నారు? City or area చెప్పండి."
+                if language == "te-IN"
+                else
+                "I don't have your location permission. Which city or area would you like the weather for?"
+            )
 
     return gemini_answer(question)
 
@@ -660,6 +667,18 @@ export default function(component) {
     if (data.transcript) heard.textContent = data.transcript;
     if (data.answer) {
       answer.textContent = data.answer;
+      const asksForWeatherLocation =
+        /which (?:city|area|location).*weather/i.test(data.answer) ||
+        /don't have your location permission/i.test(data.answer) ||
+        /ఏ location.*weather|city or area చెప్పండి/i.test(data.answer);
+
+      if (asksForWeatherLocation) {
+        S.active = true;
+        S.pausedByUser = false;
+        S.awaitingWeatherLocation = true;
+        state.textContent = "Tell me the city or area. You do not need to say Shiva again.";
+      }
+
       S.returnToWake = true;
       say(data.answer);
     }

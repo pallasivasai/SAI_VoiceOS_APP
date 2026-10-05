@@ -723,7 +723,10 @@ export default function(component) {
     }, 700);
   }
 
-  return () => clearTimeout(S.retryTimer);
+  return () => {
+    clearTimeout(S.retryTimer);
+    clearInterval(S.watchdogTimer);
+  };
 }
 """
 

@@ -576,8 +576,22 @@ export default function(component) {
     r.onresult = (event) => {
       let finalText = "", interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const part = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += part; else interim += part;
+        const result = event.results[i];
+        // Chrome can mis-hear a wake word in the first hypothesis. Prefer any
+        // alternative that clearly contains Shiva before falling back to #1.
+        let best = result[0]?.transcript || "";
+        if (!result.isFinal) {
+          interim += best;
+          continue;
+        }
+        for (let a = 0; a < result.length; a++) {
+          const candidate = result[a]?.transcript || "";
+          if (isWake(candidate)) {
+            best = candidate;
+            break;
+          }
+        }
+        finalText += best + " ";
       }
       if (interim) {
         heard.textContent = interim;

@@ -33,15 +33,13 @@ For a capable NVIDIA GPU, use SAI_WHISPER_MODEL=medium, SAI_WHISPER_DEVICE=cuda,
 
 Allow Windows microphone access for Python. SAI captures audio directly from the local microphone; Chrome/Streamlit is not required.
 
-## Google answers
+## AI conversation
 
-Normal questions are sent to Google Search and the readable result is spoken. There is no OpenAI API key and no Supabase dependency in this desktop voice path.
+Normal questions are answered by Gemini Flash-Lite. SAI keeps recent conversation context so follow-up questions such as "what about tomorrow?" or "who created it?" can be understood without repeating the previous question. The native engine is the primary continuous voice path; Streamlit is optional.
 
 ## Weather
 
-- What is the weather in Guntur now? searches Google for Guntur weather; no current-location lookup is needed.
-- What is the weather now? uses the machine's approximate IP-based city when available.
-- The browser location permission workflow in app.py is still available for the optional Streamlit HUD.
+Weather questions go through the same Gemini conversation engine in native mode, so the user can ask a location directly and then continue with follow-up questions. The browser location workflow remains available in the optional Streamlit HUD.
 
 ## Wake-word model
 

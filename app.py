@@ -529,6 +529,15 @@ export default function(component) {
     try { S.recognition.start(); } catch (_) {}
   }
 
+  // Permanent wake-word loop: if Chrome silently ends recognition,
+  // SAI starts listening again automatically.
+  function armRecognitionWatchdog() {
+    clearInterval(S.watchdogTimer);
+    S.watchdogTimer = setInterval(() => {
+      if (S.enabled && !S.speaking && !S.listening) startRecognition();
+    }, 1200);
+  }
+
   function buildRecognition() {
     if (!Recognition) {
       state.textContent = "This browser does not support voice recognition. Please use Chrome or Edge.";

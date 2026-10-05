@@ -380,9 +380,10 @@ export default function(component) {
   // SAI keeps the Shiva wake listener alive continuously.\n  if (!component.__sai) {
     component.__sai = {
       recognition:null, listening:false, enabled:false, active:false,
-      speaking:false, lastAnswerId:null, retryTimer:null,
+      speaking:false, lastAnswerId:null, retryTimer:null, watchdogTimer:null,
       activeInitialized:false, returnToWake:false, location:null,
-      lastFinalText:"", lastProcessedAt:0, pendingQuestion:"", awaitingWeatherLocation:false, pausedByUser:false
+      lastFinalText:"", lastProcessedAt:0, pendingQuestion:"",
+      awaitingWeatherLocation:false, pausedByUser:false
     };
   }
   const S = component.__sai;

@@ -408,12 +408,23 @@ export default function(component) {
     if (!S.listening && !S.enabled) state.textContent = "Tap once to allow the microphone. Then SAI waits for “Shiva”.";
   }
 
+  // Shiva is the permanent wake word. Chrome can return small phonetic
+  // variations, so common recognition forms are accepted too.
+  function normalizeWakeText(text) {
+    return String(text || "").toLowerCase().replace(/[.,!?;:]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   function isWake(text) {
-    return /(^|[\s,.;!?])(?:shiva|siva|shi\s*va|శివ)(?=$|[\s,.;!?])/i.test(text);
+    const normalized = normalizeWakeText(text);
+    return /(^|\s)(?:shiva|siva|shi\s*va|sheeva|sheva|seeva|she\s*was|శివ)(?=\s|$)/i.test(normalized);
   }
 
   function stripWake(text) {
-    return text.replace(/(^|[\s,.;!?])(?:shiva|siva|shi\s*va|శివ)(?=[\s,.;!?]|$)/ig, " ").replace(/^[,\s]+|[,\s]+$/g, "").trim();
+    return String(text || "")
+      .replace(/(^|[\s,.;!?])(?:shiva|siva|shi\s*va|sheeva|sheva|seeva|she\s*was|శివ)(?=[\s,.;!?]|$)/ig, " ")
+      .replace(/^[,\s]+|[,\s]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function isStop(text) {

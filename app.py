@@ -297,6 +297,7 @@ st.session_state.setdefault("request_id", 0)
 st.session_state.setdefault("sai_active", True)
 st.session_state.setdefault("last_location", None)
 st.session_state.setdefault("last_voice_event_id", 0)
+st.session_state.setdefault("awaiting_weather_location", False)
 
 HTML = """
 <div class="sai-root">
@@ -738,8 +739,32 @@ if voice_event:
 
     if transcript and event_id != st.session_state.last_voice_event_id:
         st.session_state.last_voice_event_id = event_id
+
+        # Server-side follow-up state: when SAI has just asked for a weather
+        # location, the very next spoken phrase is the location. This survives
+        # Streamlit reruns and does not require saying Shiva again.
+        if st.session_state.awaiting_weather_location:
+            weather_location = transcript.strip()
+            weather_location = re.sub(
+                r"^(?:in|at|near|for)\\s+",
+                "",
+                weather_location,
+                flags=re.I,
+            ).strip()
+            transcript = f"What is the weather today in {weather_location}?"
+            st.session_state.awaiting_weather_location = False
+
         st.session_state.last_transcript = transcript
         st.session_state.sai_active = True
         st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)
+
+        # If the backend had to ask for a location, keep the follow-up mode
+        # alive until the next spoken location arrives.
+        st.session_state.awaiting_weather_location = bool(
+            re.search(r"which (?:city|area|location).*weather", st.session_state.last_answer, re.I)
+            or re.search(r"don't have your location permission", st.session_state.last_answer, re.I)
+            or re.search(r"ఏ location.*weather|city or area చెప్పండి", st.session_state.last_answer, re.I)
+        )
+
         st.session_state.request_id += 1
         st.rerun()

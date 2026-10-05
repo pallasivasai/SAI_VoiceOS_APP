@@ -386,10 +386,15 @@ export default function(component) {
     };
   }
   const S = component.__sai;
-  if (!S.activeInitialized && data) {
-    S.active = data.active !== false;
-    S.location = data.location || null;
-    S.activeInitialized = true;
+  if (data) {
+    if (!S.activeInitialized) {
+      S.active = data.active !== false;
+      S.activeInitialized = true;
+    }
+    S.location = data.location || S.location || null;
+    if (typeof data.awaitingWeatherLocation === "boolean") {
+      S.awaitingWeatherLocation = data.awaitingWeatherLocation;
+    }
   }
 
   function setUI() {
@@ -441,6 +446,7 @@ export default function(component) {
       S.awaitingWeatherLocation = true;
       S.pendingQuestion = "";
       state.textContent = message;
+      setUI();
       say(message);
       return;
     }
@@ -620,8 +626,8 @@ export default function(component) {
         S.location = null;
         S.awaitingWeatherLocation = false;
         state.textContent = hasExplicitWeatherLocation(cleaned)
-          ? "Searching Google for that location's weather…"
-          : "Getting your current location for the weather…";
+          ? "Sending the weather request to Gemini…"
+          : "Checking whether location permission is available…";
         requestLocationIfNeeded();
       } else {
         setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));
@@ -713,6 +719,7 @@ data = {
     "answerId": st.session_state.request_id,
     "active": st.session_state.sai_active,
     "location": st.session_state.last_location,
+    "awaitingWeatherLocation": st.session_state.awaiting_weather_location,
 }
 
 result = voice_component(
@@ -752,7 +759,8 @@ if voice_event:
                 if lower_location.startswith(prefix):
                     weather_location = weather_location[len(prefix):].strip()
                     break
-            transcript = f"What is the weather today in {weather_location}?"
+            if weather_location:
+                transcript = f"What is the weather today in {weather_location}?"
             st.session_state.awaiting_weather_location = False
 
         st.session_state.last_transcript = transcript

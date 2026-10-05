@@ -583,7 +583,8 @@ export default function(component) {
       if (!cleaned) {
         S.active = true;
         setUI();
-        state.textContent = "Ready. I’m listening for your next instruction…";
+        state.textContent = "Yes. I am ready. Tell me what you need.";
+        say("Yes. I am ready. Tell me what you need.");
         return;
       }
 

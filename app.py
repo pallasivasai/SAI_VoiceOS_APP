@@ -441,8 +441,11 @@ export default function(component) {
       || /^[A-Za-z][A-Za-z .'-]{1,50}\s+(?:weather|temperature|forecast|climate)$/i.test(text);
   }
 
+  // IMPORTANT: voice commands use a persistent STATE value, not a transient trigger.
+  // Streamlit reruns the Python script after each state update, and the state survives
+  // that rerun. A unique event id lets Python consume each spoken command exactly once.
   function sendVoiceEvent(question, location) {
-    setTriggerValue("voice_event", JSON.stringify({
+    setStateValue("voice_event_state", JSON.stringify({
       id: Date.now(),
       transcript: question || "",
       location: location || null
@@ -473,7 +476,7 @@ export default function(component) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         S.location = {lat: pos.coords.latitude, lon: pos.coords.longitude};
-        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion || "", location: S.location}));
+        setStateValue("voice_event_state", JSON.stringify({id: Date.now(), transcript: S.pendingQuestion || "", location: S.location}));
         S.pendingQuestion = "";
       },
       () => {
@@ -601,7 +604,7 @@ export default function(component) {
             : "Getting your current location and checking the weather…";
           requestLocationIfNeeded();
         } else {
-          setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: command, location: null}));
+          setStateValue("voice_event_state", JSON.stringify({id: Date.now(), transcript: command, location: null}));
         }
         return;
       }
@@ -633,7 +636,7 @@ export default function(component) {
         // converts it into the final Gemini weather question exactly once.
         heard.textContent = weatherLocation;
         state.textContent = "Checking the weather with Gemini…";
-        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: weatherLocation, location: null}));
+        setStateValue("voice_event_state", JSON.stringify({id: Date.now(), transcript: weatherLocation, location: null}));
         return;
       }
 
@@ -651,7 +654,7 @@ export default function(component) {
           : "Checking whether location permission is available…";
         requestLocationIfNeeded();
       } else {
-        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));
+        setStateValue("voice_event_state", JSON.stringify({id: Date.now(), transcript: cleaned, location: null}));
       }
     };
 
@@ -751,12 +754,12 @@ result = voice_component(
     data=data,
     key="sai_voice_component",
     on_transcript_change=lambda: None,
-    on_voice_event_change=lambda: None,
+    on_voice_event_state_change=lambda: None,
     width="stretch",
     height="content",
 )
 
-voice_event = getattr(result, "voice_event", None)
+voice_event = getattr(result, "voice_event_state", None)
 if voice_event:
     try:
         import json

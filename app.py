@@ -680,6 +680,7 @@ export default function(component) {
   }
 
   if (!S.recognition) buildRecognition();
+  armRecognitionWatchdog();
 
   mic.onclick = () => {
     S.enabled = true;

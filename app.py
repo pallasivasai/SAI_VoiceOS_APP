@@ -746,12 +746,12 @@ if voice_event:
         # Streamlit reruns and does not require saying Shiva again.
         if st.session_state.awaiting_weather_location:
             weather_location = transcript.strip()
-            weather_location = re.sub(
-                r"^(?:in|at|near|for)\\s+",
-                "",
-                weather_location,
-                flags=re.I,
-            ).strip()
+            weather_location = weather_location.strip()
+            lower_location = weather_location.lower()
+            for prefix in ("in ", "at ", "near ", "for "):
+                if lower_location.startswith(prefix):
+                    weather_location = weather_location[len(prefix):].strip()
+                    break
             transcript = f"What is the weather today in {weather_location}?"
             st.session_state.awaiting_weather_location = False
 

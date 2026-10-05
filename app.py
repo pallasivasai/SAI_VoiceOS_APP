@@ -377,7 +377,7 @@ export default function(component) {
   const liveBadge = parentElement.querySelector("#liveBadge");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  if (!component.__sai) {
+  // SAI keeps the Shiva wake listener alive continuously.\n  if (!component.__sai) {
     component.__sai = {
       recognition:null, listening:false, enabled:false, active:false,
       speaking:false, lastAnswerId:null, retryTimer:null,

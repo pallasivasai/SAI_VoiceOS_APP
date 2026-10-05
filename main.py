@@ -18,7 +18,7 @@ class SAI:
         else:
             print("Wake engine: local Whisper Shiva fallback")
             print("For true low-power Shiva wake detection, add models/shiva.onnx.")
-        print("Say 'Shiva' to start. Say 'Shiva, stop listening' to sleep.\n")
+        print("Say 'Shiva' to start. After activation, keep talking naturally. Say 'Shiva, stop listening' to sleep.\n")
         self.speaker.say("SAI is ready. Say Shiva when you need me.")
     def sleep_loop(self):
         self.active = False
@@ -27,7 +27,7 @@ class SAI:
                 audio = record_wake_chunk(WAKE_CHUNK_SECONDS)
                 if self.wake.detect(audio):
                     self.active = True
-                    self.speaker.say("Yes. I am listening.")
+                    self.speaker.say("Yes. I am ready. Tell me what you need.")
                     return
             except KeyboardInterrupt: raise
             except Exception as exc:

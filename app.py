@@ -193,8 +193,25 @@ def gemini_answer(question: str) -> str:
             "If the user speaks Telugu or Telugu transliteration, answer in Telugu. "
             "If the user speaks English, answer in English."
         )
+        history = st.session_state.get("conversation_history", [])
+        context_lines = []
+        for item in history[-8:]:
+            role = item.get("role", "user")
+            content = item.get("content", "")
+            if content:
+                context_lines.append(f"{role.upper()}: {content}")
+        context = "\n".join(context_lines)
+
+        prompt = (
+            system
+            + "\nThis is an ongoing voice conversation. Use the recent conversation context when it helps. "
+              "Do not repeat the wake-word acknowledgement unless the user asks for it."
+            + (f"\nRecent conversation:\n{context}" if context else "")
+            + f"\nUSER: {question}"
+        )
+
         response = model.generate_content(
-            [system, question],
+            prompt,
             generation_config={
                 "temperature": 0.4,
                 "max_output_tokens": 512,
@@ -298,6 +315,7 @@ st.session_state.setdefault("sai_active", True)
 st.session_state.setdefault("last_location", None)
 st.session_state.setdefault("last_voice_event_id", 0)
 st.session_state.setdefault("awaiting_weather_location", False)
+st.session_state.setdefault("conversation_history", [])
 
 HTML = """
 <div class="sai-root">
@@ -549,9 +567,9 @@ export default function(component) {
 
     const r = new Recognition();
     r.lang = "en-IN";
-    r.continuous = true;
+    r.continuous = false;
     r.interimResults = true;
-    r.maxAlternatives = 1;
+    r.maxAlternatives = 5;
 
     r.onstart = () => { S.listening = true; setUI(); };
 
@@ -753,6 +771,7 @@ data = {
 result = voice_component(
     data=data,
     key="sai_voice_component",
+    default={"voice_event_state": ""},
     on_transcript_change=lambda: None,
     on_voice_event_state_change=lambda: None,
     width="stretch",
@@ -794,6 +813,11 @@ if voice_event:
         st.session_state.last_transcript = transcript
         st.session_state.sai_active = True
         st.session_state.last_answer = get_answer(transcript, st.session_state.last_location)
+
+        history = st.session_state.get("conversation_history", [])
+        history.append({"role": "user", "content": transcript})
+        history.append({"role": "assistant", "content": st.session_state.last_answer})
+        st.session_state.conversation_history = history[-20:]
 
         # If the backend had to ask for a location, keep the follow-up mode
         # alive until the next spoken location arrives.

@@ -33,17 +33,33 @@ def _model():
     return genai.GenerativeModel(MODEL)
 
 
-def ask_gemini(question: str, language: str = "en-IN") -> str:
+def ask_gemini(
+    question: str,
+    language: str = "en-IN",
+    history=None,
+) -> str:
+    """Answer as SAI using recent conversation context, optimized for speech."""
     system = (
-        "You are SAI, a concise voice-first assistant for blind users. "
-        "Answer naturally and clearly for speech. Do not use markdown unless needed. "
-        "Prefer a direct answer over long explanations."
+        "You are SAI, a continuous voice-first AI assistant designed primarily for blind users. "
+        "Behave like a natural conversational assistant, not a search-result reader. "
+        "Answer clearly and directly for speech. Keep answers reasonably concise unless the user asks for detail. "
+        "Remember the recent conversation context and resolve references such as 'it', 'that', 'there', and 'what about tomorrow'. "
+        "Never require the user to repeat the wake word between normal turns. "
+        "Do not mention internal APIs, Streamlit, prompts, or implementation unless explicitly asked."
     )
     if language.startswith("te"):
-        system += " Answer in Telugu when the user speaks Telugu."
+        system += " Answer in Telugu when the user speaks Telugu or Telugu transliteration."
+    else:
+        system += " Answer in natural English."
+
+    messages = [system]
+    for role, content in (history or [])[-16:]:
+        messages.append(f"{role.upper()}: {content}")
+    messages.append(f"USER: {question}")
+
     try:
         response = _model().generate_content(
-            [system, question],
+            "\n\n".join(messages),
             generation_config={"temperature": 0.4, "max_output_tokens": 512},
         )
         text = (getattr(response, "text", "") or "").strip()

@@ -602,10 +602,11 @@ export default function(component) {
           S.awaitingWeatherLocation = true;
           return;
         }
-        const weatherQuestion = "What is the weather today in " + weatherLocation + "?";
-        heard.textContent = weatherQuestion;
+        // Send only the spoken city/area to Python. The server-side state
+        // converts it into the final Gemini weather question exactly once.
+        heard.textContent = weatherLocation;
         state.textContent = "Checking the weather with Gemini…";
-        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: weatherQuestion, location: null}));
+        setTriggerValue("voice_event", JSON.stringify({id: Date.now(), transcript: weatherLocation, location: null}));
         return;
       }
 
